@@ -1,8 +1,10 @@
-# Complete VPC
+# VPC Security with Amazon VPC Block Public Access
 
-Configuration in this directory creates set of VPC resources which may be sufficient for staging or production environment (look into [simple](../simple) for more simplified setup).
+The configuration in this directory creates a VPC, route tables and a private subnet per availability zone.
 
-There are public, private, database, ElastiCache, intra (private w/o Internet access) subnets, and NAT Gateways created in each availability zone.
+In addition to standard settings, new options for blocking public access have been introduced.
+
+[Read more about enhancing VPC Security with Amazon VPC Block Public Access](https://aws.amazon.com/blogs/networking-and-content-delivery/vpc-block-public-access/).
 
 ## Usage
 
@@ -16,36 +18,90 @@ $ terraform apply
 
 Note that this example may create resources which can cost money (AWS Elastic IP, for example). Run `terraform destroy` when you don't need these resources.
 
+In the example below, a map of VPC block public access options is configured:
+
+```
+vpc_block_public_access_options = {
+    internet_gateway_block_mode = "block-bidirectional"
+}
+```
+
+Currently only `internet_gateway_block_mode` is supported, for which valid values are `block-bidirectional`, `block-ingress` and `off`.
+
+VPC block public access exclusions can be applied at the VPC level e.g.:
+
+```
+vpc_block_public_access_exclusions = {
+    exclude_vpc = {
+        exclude_vpc                     = true
+        internet_gateway_exclusion_mode = "allow-bidirectional"
+    }
+}
+```
+
+or at the subnet level e.g.:
+
+```
+vpc_block_public_access_exclusions = {
+    exclude_subnet_private1 = {
+        exclude_subnet                  = true
+        subnet_type                     = "private"
+        subnet_index                    = 1
+        internet_gateway_exclusion_mode = "allow-egress"
+    }
+    exclude_subnet_private2 = {
+        exclude_subnet                  = true
+        subnet_type                     = "private"
+        subnet_index                    = 2
+        internet_gateway_exclusion_mode = "allow-egress"
+    }
+}
+```
+
+One of `exclude_vpc` or `exclude_subnet` must be set to true.
+Value of `subnet_type` can be `public`, `private`, `database`, `redshift`, `elasticache`, `intra` or `custom`.
+Value of `subnet_index` is the index of the subnet in the corresponding subnet list.
+Value of `internet_gateway_exclusion_mode` can be `allow-egress` and `allow-bidirectional`.
+
+After deployment, VPC block public access options can be verified with the following command:
+
+```bash
+aws ec2 --region eu-west-1 describe-vpc-block-public-access-options
+```
+
+Similarly, VPC block public access exclusions can be checked by obtaining the exclusion ID from the Terraform output and running commands:
+
+```bash
+terraform output vpc_block_public_access_exclusions
+
+aws ec2 --region eu-west-1 describe-vpc-block-public-access-exclusions --exclusion-ids exclusion-id
+```
+
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
 
 | Name | Version |
 |------|---------|
 | <a name="requirement_terraform"></a> [terraform](#requirement\_terraform) | >= 1.0 |
-| <a name="requirement_aws"></a> [aws](#requirement\_aws) | >= 5.46 |
+| <a name="requirement_aws"></a> [aws](#requirement\_aws) | >= 5.79 |
 
 ## Providers
 
 | Name | Version |
 |------|---------|
-| <a name="provider_aws"></a> [aws](#provider\_aws) | >= 5.46 |
+| <a name="provider_aws"></a> [aws](#provider\_aws) | >= 5.79 |
 
 ## Modules
 
 | Name | Source | Version |
 |------|--------|---------|
 | <a name="module_vpc"></a> [vpc](#module\_vpc) | ../../ | n/a |
-| <a name="module_vpc_endpoints"></a> [vpc\_endpoints](#module\_vpc\_endpoints) | ../../modules/vpc-endpoints | n/a |
-| <a name="module_vpc_endpoints_nocreate"></a> [vpc\_endpoints\_nocreate](#module\_vpc\_endpoints\_nocreate) | ../../modules/vpc-endpoints | n/a |
 
 ## Resources
 
 | Name | Type |
 |------|------|
-| [aws_security_group.rds](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/security_group) | resource |
 | [aws_availability_zones.available](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/availability_zones) | data source |
-| [aws_iam_policy_document.dynamodb_endpoint_policy](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
-| [aws_iam_policy_document.generic_endpoint_policy](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 
 ## Inputs
 
@@ -148,12 +204,10 @@ No inputs.
 | <a name="output_vgw_arn"></a> [vgw\_arn](#output\_vgw\_arn) | The ARN of the VPN Gateway |
 | <a name="output_vgw_id"></a> [vgw\_id](#output\_vgw\_id) | The ID of the VPN Gateway |
 | <a name="output_vpc_arn"></a> [vpc\_arn](#output\_vpc\_arn) | The ARN of the VPC |
+| <a name="output_vpc_block_public_access_exclusions"></a> [vpc\_block\_public\_access\_exclusions](#output\_vpc\_block\_public\_access\_exclusions) | A map of VPC block public access exclusions |
 | <a name="output_vpc_cidr_block"></a> [vpc\_cidr\_block](#output\_vpc\_cidr\_block) | The CIDR block of the VPC |
 | <a name="output_vpc_enable_dns_hostnames"></a> [vpc\_enable\_dns\_hostnames](#output\_vpc\_enable\_dns\_hostnames) | Whether or not the VPC has DNS hostname support |
 | <a name="output_vpc_enable_dns_support"></a> [vpc\_enable\_dns\_support](#output\_vpc\_enable\_dns\_support) | Whether or not the VPC has DNS support |
-| <a name="output_vpc_endpoints"></a> [vpc\_endpoints](#output\_vpc\_endpoints) | Array containing the full resource object and attributes for all endpoints created |
-| <a name="output_vpc_endpoints_security_group_arn"></a> [vpc\_endpoints\_security\_group\_arn](#output\_vpc\_endpoints\_security\_group\_arn) | Amazon Resource Name (ARN) of the security group |
-| <a name="output_vpc_endpoints_security_group_id"></a> [vpc\_endpoints\_security\_group\_id](#output\_vpc\_endpoints\_security\_group\_id) | ID of the security group |
 | <a name="output_vpc_flow_log_cloudwatch_iam_role_arn"></a> [vpc\_flow\_log\_cloudwatch\_iam\_role\_arn](#output\_vpc\_flow\_log\_cloudwatch\_iam\_role\_arn) | The ARN of the IAM role used when pushing logs to Cloudwatch log group |
 | <a name="output_vpc_flow_log_destination_arn"></a> [vpc\_flow\_log\_destination\_arn](#output\_vpc\_flow\_log\_destination\_arn) | The ARN of the destination for VPC Flow Logs |
 | <a name="output_vpc_flow_log_destination_type"></a> [vpc\_flow\_log\_destination\_type](#output\_vpc\_flow\_log\_destination\_type) | The type of the destination for VPC Flow Logs |

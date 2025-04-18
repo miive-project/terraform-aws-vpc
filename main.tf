@@ -59,6 +59,36 @@ resource "aws_vpc_ipv4_cidr_block_association" "this" {
   cidr_block = element(var.secondary_cidr_blocks, count.index)
 }
 
+resource "aws_vpc_block_public_access_options" "this" {
+  count = local.create_vpc && length(keys(var.vpc_block_public_access_options)) > 0 ? 1 : 0
+
+  internet_gateway_block_mode = try(var.vpc_block_public_access_options["internet_gateway_block_mode"], null)
+}
+
+resource "aws_vpc_block_public_access_exclusion" "this" {
+  for_each = { for k, v in var.vpc_block_public_access_exclusions : k => v if local.create_vpc }
+
+  vpc_id = lookup(each.value, "exclude_vpc", false) ? local.vpc_id : null
+
+  subnet_id = lookup(each.value, "exclude_subnet", false) ? lookup(
+    {
+      private     = aws_subnet.private[*].id,
+      public      = aws_subnet.public[*].id,
+      database    = aws_subnet.database[*].id,
+      redshift    = aws_subnet.redshift[*].id,
+      elasticache = aws_subnet.elasticache[*].id,
+      intra       = aws_subnet.intra[*].id,
+      outpost     = aws_subnet.outpost[*].id
+    },
+    each.value.subnet_type,
+    null
+  )[each.value.subnet_index] : null
+
+  internet_gateway_exclusion_mode = each.value.internet_gateway_exclusion_mode
+
+  tags = var.tags
+}
+
 ################################################################################
 # DHCP Options Set
 ################################################################################
@@ -66,11 +96,12 @@ resource "aws_vpc_ipv4_cidr_block_association" "this" {
 resource "aws_vpc_dhcp_options" "this" {
   count = local.create_vpc && var.enable_dhcp_options ? 1 : 0
 
-  domain_name          = var.dhcp_options_domain_name
-  domain_name_servers  = var.dhcp_options_domain_name_servers
-  ntp_servers          = var.dhcp_options_ntp_servers
-  netbios_name_servers = var.dhcp_options_netbios_name_servers
-  netbios_node_type    = var.dhcp_options_netbios_node_type
+  domain_name                       = var.dhcp_options_domain_name
+  domain_name_servers               = var.dhcp_options_domain_name_servers
+  ntp_servers                       = var.dhcp_options_ntp_servers
+  netbios_name_servers              = var.dhcp_options_netbios_name_servers
+  netbios_node_type                 = var.dhcp_options_netbios_node_type
+  ipv6_address_preferred_lease_time = var.dhcp_options_ipv6_address_preferred_lease_time
 
   tags = merge(
     { "Name" = var.name },
@@ -152,9 +183,9 @@ resource "aws_route_table_association" "public" {
 }
 
 resource "aws_route" "public_internet_gateway" {
-  count = local.create_public_subnets && var.create_igw ? 1 : 0
+  count = local.create_public_subnets && var.create_igw ? local.num_public_route_tables : 0
 
-  route_table_id         = aws_route_table.public[0].id
+  route_table_id         = aws_route_table.public[count.index].id
   destination_cidr_block = "0.0.0.0/0"
   gateway_id             = aws_internet_gateway.this[0].id
 
@@ -164,9 +195,9 @@ resource "aws_route" "public_internet_gateway" {
 }
 
 resource "aws_route" "public_internet_gateway_ipv6" {
-  count = local.create_public_subnets && var.create_igw && var.enable_ipv6 ? 1 : 0
+  count = local.create_public_subnets && var.create_igw && var.enable_ipv6 ? local.num_public_route_tables : 0
 
-  route_table_id              = aws_route_table.public[0].id
+  route_table_id              = aws_route_table.public[count.index].id
   destination_ipv6_cidr_block = "::/0"
   gateway_id                  = aws_internet_gateway.this[0].id
 }
@@ -1101,7 +1132,7 @@ resource "aws_nat_gateway" "this" {
 }
 
 resource "aws_route" "private_nat_gateway" {
-  count = local.create_vpc && var.enable_nat_gateway ? local.nat_gateway_count : 0
+  count = local.create_vpc && var.enable_nat_gateway && var.create_private_nat_gateway_route ? local.nat_gateway_count : 0
 
   route_table_id         = element(aws_route_table.private[*].id, count.index)
   destination_cidr_block = var.nat_gateway_destination_cidr_block
